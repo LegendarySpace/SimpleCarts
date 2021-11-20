@@ -6,6 +6,7 @@
 #include "Engine/World.h"
 #include "Components/InputComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "DrawDebugHelpers.h"
 
 // Sets default values
 AGoCart::AGoCart()
@@ -31,9 +32,7 @@ void AGoCart::GetLifetimeReplicatedProps(TArray< FLifetimeProperty > & OutLifeti
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
-	DOREPLIFETIME(AGoCart, ServerState);
-	DOREPLIFETIME(AGoCart, Steering);
-	DOREPLIFETIME(AGoCart, Throttle);
+	DOREPLIFETIME(AGoCart, ServerState); 
 }
 
 
@@ -41,7 +40,7 @@ void AGoCart::GetLifetimeReplicatedProps(TArray< FLifetimeProperty > & OutLifeti
 void AGoCart::BeginPlay()
 {
 	Super::BeginPlay();
-	NetUpdateFrequency = 2;
+	NetUpdateFrequency = 1;
 }
 
 // Called every frame
@@ -49,20 +48,74 @@ void AGoCart::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	if (IsLocallyControlled())
+	FString str;
+	switch (GetLocalRole())
 	{
-		// Create Move
-		FGoCartMove Move;
-		Move.Steering = Steering;
-		Move.Throttle = Throttle;
-		Move.DeltaTime = DeltaTime;
+	case ROLE_Authority:
+		str = "Authority";
+		break;
+	case ROLE_AutonomousProxy:
+		str = "Autonomous";
+		break;
+	case ROLE_SimulatedProxy:
+		str = "Simulated";
+		break;
+	default:
+		break;
+	}
+
+	DrawDebugString(GetWorld(), FVector(0, 0, 100), str, this, FColor::White, DeltaTime);
+
+	// Client and in control of pawn
+	if (GetLocalRole() == ROLE_AutonomousProxy)
+	{
+		FGoCartMove Move = CreateMove(DeltaTime);
+
+		UnacknowledgedMoves.Add(Move);
 
 		// Send Move to server
 		Server_SendMove(Move);
+
+		SimulateMove(Move);
 	}
 
+	// Server and in control of pawn
+	if (GetLocalRole() == ROLE_Authority && IsLocallyControlled())
+	{
+		FGoCartMove Move = CreateMove(DeltaTime);
+
+		Server_SendMove(Move);
+	}
+
+	// Not in control of pawn
+	if (GetLocalRole() == ROLE_SimulatedProxy)
+	{
+		SimulateMove(ServerState.LastMove);
+		// ServerState.LastMove and ServerState.Velocity are empty
+		// Only Server Transform seems to be updated
+
+		//UE_LOG(LogTemp, Warning, TEXT("Proxy throttle is: %d, and Steering is: %d"), ServerState.LastMove.Throttle, ServerState.LastMove.Steering);
+		//UE_LOG(LogTemp, Warning, TEXT("Proxy Speed is: %d"), ServerState.Velocity.Size());
+	}
+
+	Speed = Velocity.Size();
+}
+
+FGoCartMove AGoCart::CreateMove(float DeltaTime)
+{
+	FGoCartMove Move;
+	Move.Steering = Steering;
+	Move.Throttle = Throttle;
+	Move.DeltaTime = DeltaTime;
+	Move.Timestamp = GetWorld()->GetTimeSeconds();
+	
+	return Move;
+}
+
+void AGoCart::SimulateMove(const FGoCartMove& Move)
+{
 	// Calculate Acceleration
-	FVector Force = MaxDrivingForce * Throttle * GetActorForwardVector();
+	FVector Force = MaxDrivingForce * Move.Throttle * GetActorForwardVector();
 
 	Force += GetAirResistance();
 	Force += GetRollingResistance();
@@ -70,26 +123,32 @@ void AGoCart::Tick(float DeltaTime)
 	FVector Acceleration = Force / Mass;
 
 	// Apply Acceleration
-	Velocity += Acceleration * DeltaTime;
+	Velocity += Acceleration * Move.DeltaTime;
 
 	// Update rotation and position
-	UpdateRotation(DeltaTime, Steering);
-	UpdateLocationFromVelocity(DeltaTime);
+	UpdateRotation(Move.DeltaTime, Move.Steering);
+	UpdateLocationFromVelocity(Move.DeltaTime);
+}
 
-	if (HasAuthority())
-	{
-		ServerState.Transform = GetActorTransform();
-		ServerState.Velocity = Velocity;
-	}
-
-	Speed = Velocity.Size();
+void AGoCart::ClearAcknowledgedMoves(const FGoCartMove& LastMove)
+{
+	UnacknowledgedMoves.RemoveAll([&](FGoCartMove Move) { return Move.Timestamp <= LastMove.Timestamp; });
 }
 
 void AGoCart::OnRep_ServerState()
 {
-	UE_LOG(LogTemp, Warning, TEXT("Updating State"));
+	// Client Recieving Updated State
 	SetActorTransform(ServerState.Transform);
 	Velocity = ServerState.Velocity;
+
+	if (GetLocalRole() == ROLE_SimulatedProxy) UE_LOG(LogTemp, Warning, TEXT("OnRep_State Proxy Speed is: %d"), Velocity.Size());
+	ClearAcknowledgedMoves(ServerState.LastMove);
+
+	// Simulate all moves
+	for (const FGoCartMove& Move : UnacknowledgedMoves)
+	{
+		SimulateMove(Move);
+	}
 }
 
 void AGoCart::MoveForward(float Value)
@@ -109,9 +168,11 @@ bool AGoCart::Server_SendMove_Validate(FGoCartMove Move)
 
 void AGoCart::Server_SendMove_Implementation(FGoCartMove Move)
 {
-	// Should add to stack of moves
-	Steering = Move.Steering;
-	Throttle = Move.Throttle;
+	SimulateMove(Move);
+
+	ServerState.LastMove = Move;
+	ServerState.Transform = GetActorTransform();
+	ServerState.Velocity = Velocity;
 }
 
 FVector AGoCart::GetAirResistance()

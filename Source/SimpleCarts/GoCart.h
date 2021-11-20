@@ -60,6 +60,11 @@ public:
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 
+	FGoCartMove CreateMove(float DeltaTime);
+
+	void SimulateMove(const FGoCartMove& Move);
+
+	void ClearAcknowledgedMoves(const FGoCartMove& LastMove);
 
 	void MoveForward(float Value);
 
@@ -109,13 +114,15 @@ private:
 	UPROPERTY(EditAnywhere)
 	float Speed;
 
-	UPROPERTY(EditAnywhere, Replicated)
-	float Steering;
-
 	UPROPERTY(EditAnywhere)
 	float RotationRadians;
 
-	UPROPERTY(EditAnywhere, Replicated)
+	UPROPERTY(EditAnywhere)
+	float Steering;
+
+	UPROPERTY(EditAnywhere)
 	float Throttle;
+
+	TArray<FGoCartMove> UnacknowledgedMoves;
 };
 
