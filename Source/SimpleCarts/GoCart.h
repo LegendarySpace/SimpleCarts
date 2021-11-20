@@ -6,6 +6,40 @@
 #include "GameFramework/Pawn.h"
 #include "GoCart.generated.h"
 
+
+USTRUCT()
+struct FGoCartMove
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	float Steering;
+
+	UPROPERTY()
+	float Throttle;
+
+	UPROPERTY()
+	float DeltaTime;
+
+	UPROPERTY()
+	float Timestamp;
+};
+
+USTRUCT()
+struct FGoCartState
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	FGoCartMove LastMove;
+
+	UPROPERTY()
+	FVector Velocity;
+
+	UPROPERTY()
+	FTransform Transform;
+};
+
 UCLASS()
 class SIMPLECARTS_API AGoCart : public APawn
 {
@@ -15,6 +49,9 @@ public:
 	// Sets default values for this pawn's properties
 	AGoCart();
 
+	// Called to bind functionality to input
+	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
@@ -23,13 +60,13 @@ public:
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 
-	// Called to bind functionality to input
-	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
 	void MoveForward(float Value);
+
 	void MoveRight(float Value);
 
-	FVector CalculateAcceleration();
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_SendMove(FGoCartMove Move);
 
 	FVector GetAirResistance();
 	FVector GetRollingResistance();
@@ -37,7 +74,7 @@ public:
 private:
 	void UpdateLocationFromVelocity(float DeltaTime);
 
-	FQuat UpdateRotation(float DeltaTime);
+	FQuat UpdateRotation(float DeltaTime, float SteeringThrow);
 
 private:
 	// Mass in kg
@@ -58,20 +95,27 @@ private:
 
 	// Size of turning radius in meters
 	UPROPERTY(EditAnywhere)
-	float TurningRadius = 2;
+	float TurningRadius = 1;
 
-	UPROPERTY(EditAnywhere)
-	FVector Velocity = FVector(0.0);
+	UPROPERTY(VisibleAnywhere, Replicated)
+	FVector Velocity;
+
+	UPROPERTY(ReplicatedUsing = OnRep_ServerState)
+	FGoCartState ServerState;
+
+	UFUNCTION()
+	void OnRep_ServerState();
 
 	UPROPERTY(EditAnywhere)
 	float Speed;
 
-	UPROPERTY(EditAnywhere)
+	UPROPERTY(EditAnywhere, Replicated)
 	float Steering;
 
 	UPROPERTY(EditAnywhere)
 	float RotationRadians;
 
+	UPROPERTY(EditAnywhere, Replicated)
 	float Throttle;
 };
 

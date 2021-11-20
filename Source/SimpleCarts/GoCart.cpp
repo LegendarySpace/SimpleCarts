@@ -4,34 +4,17 @@
 #include "GoCart.h"
 
 #include "Engine/World.h"
+#include "Components/InputComponent.h"
+#include "Net/UnrealNetwork.h"
 
 // Sets default values
 AGoCart::AGoCart()
 {
  	// Set this pawn to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
+	bReplicates = true;
 
 }
-
-// Called when the game starts or when spawned
-void AGoCart::BeginPlay()
-{
-	Super::BeginPlay();
-	
-}
-
-// Called every frame
-void AGoCart::Tick(float DeltaTime)
-{
-	Super::Tick(DeltaTime);
-
-	Velocity += CalculateAcceleration() * DeltaTime;
-	Speed = Velocity.Size();
-
-	UpdateRotation(DeltaTime);
-	UpdateLocationFromVelocity(DeltaTime);
-}
-
 // Called to bind functionality to input
 void AGoCart::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
@@ -44,6 +27,71 @@ void AGoCart::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 	PlayerInputComponent->BindAxis("MoveRight", this, &AGoCart::MoveRight);
 }
 
+void AGoCart::GetLifetimeReplicatedProps(TArray< FLifetimeProperty > & OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(AGoCart, ServerState);
+	DOREPLIFETIME(AGoCart, Steering);
+	DOREPLIFETIME(AGoCart, Throttle);
+}
+
+
+// Called when the game starts or when spawned
+void AGoCart::BeginPlay()
+{
+	Super::BeginPlay();
+	NetUpdateFrequency = 2;
+}
+
+// Called every frame
+void AGoCart::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	if (IsLocallyControlled())
+	{
+		// Create Move
+		FGoCartMove Move;
+		Move.Steering = Steering;
+		Move.Throttle = Throttle;
+		Move.DeltaTime = DeltaTime;
+
+		// Send Move to server
+		Server_SendMove(Move);
+	}
+
+	// Calculate Acceleration
+	FVector Force = MaxDrivingForce * Throttle * GetActorForwardVector();
+
+	Force += GetAirResistance();
+	Force += GetRollingResistance();
+
+	FVector Acceleration = Force / Mass;
+
+	// Apply Acceleration
+	Velocity += Acceleration * DeltaTime;
+
+	// Update rotation and position
+	UpdateRotation(DeltaTime, Steering);
+	UpdateLocationFromVelocity(DeltaTime);
+
+	if (HasAuthority())
+	{
+		ServerState.Transform = GetActorTransform();
+		ServerState.Velocity = Velocity;
+	}
+
+	Speed = Velocity.Size();
+}
+
+void AGoCart::OnRep_ServerState()
+{
+	UE_LOG(LogTemp, Warning, TEXT("Updating State"));
+	SetActorTransform(ServerState.Transform);
+	Velocity = ServerState.Velocity;
+}
+
 void AGoCart::MoveForward(float Value)
 {
 	Throttle = Value;
@@ -54,16 +102,16 @@ void AGoCart::MoveRight(float Value)
 	Steering = Value;
 }
 
-FVector AGoCart::CalculateAcceleration()
+bool AGoCart::Server_SendMove_Validate(FGoCartMove Move)
 {
-	FVector Force = MaxDrivingForce * Throttle * GetActorForwardVector();
+	return (FMath::Abs(Move.Steering) <= 1 && FMath::Abs(Move.Throttle) <= 1);
+}
 
-	Force += GetAirResistance();
-	Force += GetRollingResistance();
-
-	FVector Acceleration = Force / Mass;
-
-	return Acceleration;
+void AGoCart::Server_SendMove_Implementation(FGoCartMove Move)
+{
+	// Should add to stack of moves
+	Steering = Move.Steering;
+	Throttle = Move.Throttle;
 }
 
 FVector AGoCart::GetAirResistance()
@@ -95,15 +143,11 @@ void AGoCart::UpdateLocationFromVelocity(float DeltaTime)
 	}
 }
 
-FQuat AGoCart::UpdateRotation(float DeltaTime)
+FQuat AGoCart::UpdateRotation(float DeltaTime, float SteeringThrow)
 {
 	float DeltaLocation = FVector::DotProduct(GetActorForwardVector(), Velocity) * 10 * DeltaTime;
-	float RotationAngle = DeltaLocation / TurningRadius * Steering;
+	float RotationAngle = DeltaLocation / TurningRadius * SteeringThrow;
 	RotationRadians = RotationAngle * DeltaTime;
-
-	// Need to flip rotation when throttle is negative
-	// If (forward vector + NormVelocity).Size is < 1 going reverse
-	//if ((GetActorForwardVector() + Velocity.GetSafeNormal()).Size() < 1) RotationRadians *= -1;
 
 	FQuat Rot(GetActorUpVector(), RotationRadians);
 	AddActorWorldRotation(Rot);
