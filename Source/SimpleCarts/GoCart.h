@@ -4,41 +4,12 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
+
+#include "GoCartMovementComponent.h"
+#include "GoCartMovementReplication.h"
+
 #include "GoCart.generated.h"
 
-
-USTRUCT()
-struct FGoCartMove
-{
-	GENERATED_BODY()
-
-	UPROPERTY()
-	float Steering;
-
-	UPROPERTY()
-	float Throttle;
-
-	UPROPERTY()
-	float DeltaTime;
-
-	UPROPERTY()
-	float Timestamp;
-};
-
-USTRUCT()
-struct FGoCartState
-{
-	GENERATED_BODY()
-
-	UPROPERTY()
-	FGoCartMove LastMove;
-
-	UPROPERTY()
-	FVector Velocity;
-
-	UPROPERTY()
-	FTransform Transform;
-};
 
 UCLASS()
 class SIMPLECARTS_API AGoCart : public APawn
@@ -48,6 +19,12 @@ class SIMPLECARTS_API AGoCart : public APawn
 public:
 	// Sets default values for this pawn's properties
 	AGoCart();
+
+	UPROPERTY(VisibleAnywhere, Category = "Movement")
+	class UGoCartMovementComponent* MovementComponent;
+
+	UPROPERTY(VisibleAnywhere, Category = "Replication")
+	class UGoCartMovementReplication* MovementReplication;
 
 	// Called to bind functionality to input
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
@@ -60,69 +37,8 @@ public:
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 
-	FGoCartMove CreateMove(float DeltaTime);
-
-	void SimulateMove(const FGoCartMove& Move);
-
-	void ClearAcknowledgedMoves(const FGoCartMove& LastMove);
-
 	void MoveForward(float Value);
 
 	void MoveRight(float Value);
-
-	UFUNCTION(Server, Reliable, WithValidation)
-	void Server_SendMove(FGoCartMove Move);
-
-	FVector GetAirResistance();
-	FVector GetRollingResistance();
-
-private:
-	void UpdateLocationFromVelocity(float DeltaTime);
-
-	FQuat UpdateRotation(float DeltaTime, float SteeringThrow);
-
-private:
-	// Mass in kg
-	UPROPERTY(EditAnywhere)
-	float Mass = 1000;
-
-	// Full throttle force (N)
-	UPROPERTY(EditAnywhere)
-	float MaxDrivingForce = 10000;
-
-	// MaxDrivingForce / TopSpeed^2
-	// Aerodynamic measure of go kart (0 == Perfect)
-	UPROPERTY(EditAnywhere)
-	float DragCoefficient = 16;
-
-	UPROPERTY(EditAnywhere)
-	float RollingResistanceCoefficient = .015;
-
-	// Size of turning radius in meters
-	UPROPERTY(EditAnywhere)
-	float TurningRadius = 1;
-
-	UPROPERTY(VisibleAnywhere, Replicated)
-	FVector Velocity;
-
-	UPROPERTY(ReplicatedUsing = OnRep_ServerState)
-	FGoCartState ServerState;
-
-	UFUNCTION()
-	void OnRep_ServerState();
-
-	UPROPERTY(EditAnywhere)
-	float Speed;
-
-	UPROPERTY(EditAnywhere)
-	float RotationRadians;
-
-	UPROPERTY(EditAnywhere)
-	float Steering;
-
-	UPROPERTY(EditAnywhere)
-	float Throttle;
-
-	TArray<FGoCartMove> UnacknowledgedMoves;
 };
 
