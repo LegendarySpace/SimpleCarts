@@ -36,6 +36,7 @@ void AGoCart::BeginPlay()
 {
 	Super::BeginPlay();
 	NetUpdateFrequency = 1;
+	SetReplicateMovement(false);
 }
 
 // Called every frame

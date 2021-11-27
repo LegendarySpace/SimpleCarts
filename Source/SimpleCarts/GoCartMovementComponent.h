@@ -12,17 +12,22 @@ struct FGoCartMove
 {
 	GENERATED_BODY()
 
-		UPROPERTY()
-		float Steering;
+	UPROPERTY()
+	float Steering;
 
 	UPROPERTY()
-		float Throttle;
+	float Throttle;
 
 	UPROPERTY()
-		float DeltaTime;
+	float DeltaTime;
 
 	UPROPERTY()
-		float Timestamp;
+	float Timestamp;
+
+	bool IsValid()
+	{
+		return (FMath::Abs(Steering) <= 1 && FMath::Abs(Throttle) <= 1);
+	}
 };
 
 

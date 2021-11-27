@@ -20,10 +20,10 @@ public:
 	// Sets default values for this pawn's properties
 	AGoCart();
 
-	UPROPERTY(VisibleAnywhere, Category = "Movement")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Movement")
 	class UGoCartMovementComponent* MovementComponent;
 
-	UPROPERTY(VisibleAnywhere, Category = "Replication")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Replication")
 	class UGoCartMovementReplication* MovementReplication;
 
 	// Called to bind functionality to input
